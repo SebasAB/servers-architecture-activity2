@@ -6,12 +6,36 @@ const jwt = require('jsonwebtoken');
 exports.registerUser = async (req, res) => {
   try {
     const { name, email, password, bio } = req.body;
-
-    const user = new User({ name, email, password, bio });
+    const user = new User({ name, email, password, bio, active: false });
     await user.save();
-    res.status(201).json(user);
+
+    const token = jwt.sign({ userId: user._id }, 'secretkey', { expiresIn: '1d' });
+    const activationLink = `http://localhost:8000/api/users/activate/${token}`;
+    
+    // Devolvemos el enlace de activación
+    res.status(201).json({
+      message: 'User registered. Please activate your account.',
+      activationLink
+    });
   } catch (error) {
     res.status(400).json({ message: error.message });
+  }
+};
+
+// Activar la cuenta
+exports.activateAccount = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const decoded = jwt.verify(token, 'secretkey');
+    const user = await User.findById(decoded.userId);
+
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.active = true;
+    await user.save();
+    res.status(200).json({ message: 'Account activated' });
+  } catch (error) {
+    res.status(400).json({ message: 'Invalid or expired token' });
   }
 };
 
@@ -21,8 +45,8 @@ exports.loginUser = async (req, res) => {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
 
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+    if (!user || !user.active) {
+      return res.status(401).json({ message: 'Invalid credentials or account not activated' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
